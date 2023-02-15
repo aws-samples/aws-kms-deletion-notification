@@ -1,0 +1,131 @@
+#
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Stack for creation of notifications when a KMS key is scheduled for deletion
+Parameters:
+  DestinationEmailAddress:
+    Description: The email address to receive cloudtrail alert when a KMS key is scheduled for deletion.
+    Type: String
+    AllowedPattern: ^[A-Za-z._%+-]+@[A-Za-z.-]+\.[A-za-z]{2,}$
+  SNSTopicName:
+    Description: The name of the SNS Topic.
+    Type: String   
+    AllowedPattern: ^[\w+=,.@/-]+$
+    
+Resources: 
+  SnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      Subscription:
+        - Endpoint: !Ref DestinationEmailAddress
+          Protocol: email
+      KmsMasterKeyId: alias/aws/sns
+      TopicName: !Ref SNSTopicName
+
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties: 
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement:
+          - Sid: DefaultStatement
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+                - cloudwatch.amazonaws.com
+                - config.amazonaws.com
+                - cloudformation.amazonaws.com
+            Action: 
+              - "SNS:GetTopicAttributes"
+              - "SNS:SetTopicAttributes"
+              - "SNS:AddPermission"
+              - "SNS:RemovePermission"
+              - "SNS:DeleteTopic"
+              - "SNS:Subscribe"
+              - "SNS:ListSubscriptionsByTopic"
+              - "SNS:Publish"
+              - "SNS:Receive"
+            Resource: !Ref SnsTopic
+            Condition:
+              StringEquals:
+                "AWS:SourceOwner": !Ref 'AWS::AccountId'
+          - Sid: AllowEventRuletoPosttoSNSTopic
+            Effect: Allow
+            Principal: 
+              Service: "events.amazonaws.com"
+            Action: "sns:Publish"
+            Resource: !Ref SnsTopic
+      Topics: 
+        - !Ref SnsTopic
+
+  EventRulefordeletation:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: KMS-CMK-Deletion-Alert
+      Description: 'The Rule to notify in case of deletion of a KMS key'
+      State: ENABLED
+      Targets:
+        - Arn: !Ref SnsTopic
+          Id: SNSTopic
+          InputTransformer:
+            InputPathsMap:
+              days: "$.detail.responseElements.pendingWindowInDays"
+              deletdate: "$.detail.responseElements.deletionDate"
+              key: "$.detail.responseElements.keyId"
+              #region: "$.region"
+              #executionid: "$.detail.execution-id"
+            InputTemplate: |
+              "KMS Key <key> is scheduled for deletion after <days> days on date <deletdate>."
+      EventPattern:
+        source:
+        - aws.kms
+        detail-type:
+        - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+          - kms.amazonaws.com
+          eventName:
+          - ScheduleKeyDeletion
+
+  EventRuleforDisable:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: KMS-CMK-disable-Alert
+      Description: 'The Rule to notify in case of disable of a KMS key'
+      State: ENABLED
+      Targets:
+        - Arn: !Ref SnsTopic
+          Id: SNSTopic
+          InputTransformer:
+            InputPathsMap:
+              key: "$.detail.requestParameters.keyId"
+            InputTemplate: |
+              "KMS Key <key> is disabled."
+      EventPattern:
+        source:
+        - aws.kms
+        detail-type:
+        - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+          - kms.amazonaws.com
+          eventName:
+          - DisableKey
+
+  
