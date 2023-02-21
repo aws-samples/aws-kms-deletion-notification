@@ -16,10 +16,10 @@
 #
 ---
 AWSTemplateFormatVersion: 2010-09-09
-Description: Stack for creation of notifications when a KMS key is scheduled for deletion
+Description: Stack for creation of notifications when a AWS KMS key is scheduled for deletion
 Parameters:
   DestinationEmailAddress:
-    Description: The email address to receive cloudtrail alert when a KMS key is scheduled for deletion.
+    Description: The email address to receive AWS CloudTrail alert when a KMS key is scheduled for deletion.
     Type: String
     AllowedPattern: ^[A-Za-z._%+-]+@[A-Za-z.-]+\.[A-za-z]{2,}$
   SNSTopicName:
@@ -86,12 +86,10 @@ Resources:
           InputTransformer:
             InputPathsMap:
               days: "$.detail.responseElements.pendingWindowInDays"
-              deletdate: "$.detail.responseElements.deletionDate"
+              deletedate: "$.detail.responseElements.deletionDate"
               key: "$.detail.responseElements.keyId"
-              #region: "$.region"
-              #executionid: "$.detail.execution-id"
             InputTemplate: |
-              "KMS Key <key> is scheduled for deletion after <days> days on date <deletdate>."
+              "KMS Key <key> is scheduled for deletion after <days> days on date <deletedate>."
       EventPattern:
         source:
         - aws.kms
@@ -107,7 +105,7 @@ Resources:
     Type: 'AWS::Events::Rule'
     Properties:
       Name: KMS-CMK-disable-Alert
-      Description: 'The Rule to notify in case of disable of a KMS key'
+      Description: 'The Rule to notify when a KMS key is disabled'
       State: ENABLED
       Targets:
         - Arn: !Ref SnsTopic
