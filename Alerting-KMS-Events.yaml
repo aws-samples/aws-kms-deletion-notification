@@ -34,7 +34,6 @@ Resources:
       Subscription:
         - Endpoint: !Ref DestinationEmailAddress
           Protocol: email
-      KmsMasterKeyId: alias/aws/sns
       TopicName: !Ref SNSTopicName
 
   TopicPolicy:
@@ -85,11 +84,20 @@ Resources:
           Id: SNSTopic
           InputTransformer:
             InputPathsMap:
-              days: "$.detail.responseElements.pendingWindowInDays"
-              deletedate: "$.detail.responseElements.deletionDate"
-              key: "$.detail.responseElements.keyId"
+                days: "$.detail.responseElements.pendingWindowInDays"
+                deletedate: "$.detail.responseElements.deletionDate"
+                key: "$.detail.responseElements.keyId"
+                awsaccid: "$.detail.userIdentity.accountId"
+                user: "$.detail.userIdentity.userName"
+                eventdate: "$.detail.eventTime"
             InputTemplate: |
-              "KMS Key <key> is scheduled for deletion after <days> days on date <deletedate>."
+                "There is a KMS key scheduled for deletion.Please find the details below."
+                "Account ID: <awsaccid>"
+                "Deletion Scheduled by: <user>"
+                "KMS Key ID: <key>"
+                "Scheduled deletion date: <deletedate>"
+                "No of days to deletion: <days> days"
+                "Deletion action trigger at: <eventdate>"
       EventPattern:
         source:
         - aws.kms
@@ -112,9 +120,16 @@ Resources:
           Id: SNSTopic
           InputTransformer:
             InputPathsMap:
-              key: "$.detail.requestParameters.keyId"
+                key: "$.detail.responseElements.keyId"
+                awsaccid: "$.detail.userIdentity.accountId"
+                user: "$.detail.userIdentity.userName"
+                eventdate: "$.detail.eventTime"
             InputTemplate: |
-              "KMS Key <key> is disabled."
+                "There is a KMS key disabled.Please find the details below."
+                "Account ID: <awsaccid>"
+                "Disabled by: <user>"
+                "KMS Key ID: <key>"
+                "Disable action trigger at: <eventdate>"
       EventPattern:
         source:
         - aws.kms
