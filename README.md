@@ -61,7 +61,7 @@ The stack creates one KMS key for the topic. Amazon EventBridge cannot publish t
 2. Disable it (`aws kms disable-key --key-id <key-id>`). You should get an email within a few minutes.
 3. Re-enable it (`aws kms enable-key --key-id <key-id>`).
 
-To check the event patterns without changing any key, run the sample events in `tests/events` against the patterns:
+To check the event patterns without changing any key, run the sample events in `tests/events` (they contain placeholders, not real IDs) against the patterns:
 
 ```bash
 aws events test-event-pattern \
