@@ -1,0 +1,22 @@
+{
+  "version": "0",
+  "id": "11111111-2222-3333-4444-555555555555",
+  "detail-type": "AWS API Call via CloudTrail",
+  "source": "aws.kms",
+  "account": "111122223333",
+  "time": "2026-01-01T00:00:00Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "eventSource": "kms.amazonaws.com",
+    "eventName": "DisableKey",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "userIdentity": {
+      "type": "AssumedRole",
+      "arn": "arn:aws:sts::111122223333:assumed-role/Admin/example-session",
+      "accountId": "111122223333"
+    },
+    "requestParameters": { "keyId": "1234abcd-12ab-34cd-56ef-1234567890ab" },
+    "responseElements": null
+  }
+}

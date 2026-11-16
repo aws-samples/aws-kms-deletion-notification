@@ -1,0 +1,20 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+name: lint
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  cfn-lint-and-checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install cfn-lint checkov
+      - run: cfn-lint Alerting-KMS-Events.yaml
+      - run: checkov -d . --framework cloudformation

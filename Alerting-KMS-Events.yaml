@@ -1,144 +1,197 @@
-#
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify,
-# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-# permit persons to whom the Software is furnished to do so.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
+# SPDX-License-Identifier: MIT-0
 ---
 AWSTemplateFormatVersion: 2010-09-09
-Description: Stack for creation of notifications when a AWS KMS key is scheduled for deletion
+Description: Stack for creation of notifications when an AWS KMS key is disabled or scheduled for deletion
 Parameters:
   DestinationEmailAddress:
-    Description: The email address to receive AWS CloudTrail alert when a KMS key is scheduled for deletion.
+    Description: The email address to receive the alert when a KMS key is disabled or scheduled for deletion.
     Type: String
-    AllowedPattern: ^[A-Za-z._%+-]+@[A-Za-z.-]+\.[A-za-z]{2,}$
+    AllowedPattern: ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$
+    ConstraintDescription: Must be a valid email address.
   SNSTopicName:
     Description: The name of the SNS Topic.
-    Type: String   
+    Type: String
     AllowedPattern: ^[\w+=,.@/-]+$
-    
-Resources: 
-  SnsTopic:
-    Type: 'AWS::SNS::Topic'
+    ConstraintDescription: Must contain only letters, numbers and the characters + = , . @ / - _
+
+Resources:
+  # Customer managed key that encrypts the SNS topic. Amazon EventBridge cannot publish to a topic
+  # that uses the AWS managed key alias/aws/sns, because its key policy cannot be changed.
+  SnsKmsKey:
+    Type: AWS::KMS::Key
     Properties:
+      Description: Encrypts the SNS topic that receives the AWS KMS key state change alerts
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowEventBridgeRulesToUseTheKey
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/*
+
+  SnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Ref SNSTopicName
+      KmsMasterKeyId: !GetAtt SnsKmsKey.Arn
       Subscription:
         - Endpoint: !Ref DestinationEmailAddress
           Protocol: email
-      TopicName: !Ref SNSTopicName
 
   TopicPolicy:
     Type: AWS::SNS::TopicPolicy
-    Properties: 
-      PolicyDocument: 
+    Properties:
+      Topics:
+        - !Ref SnsTopic
+      PolicyDocument:
         Version: 2012-10-17
         Statement:
-          - Sid: DefaultStatement
+          - Sid: AllowTheThreeRulesInThisStackToPublish
             Effect: Allow
             Principal:
-              Service:
-                - events.amazonaws.com
-                - cloudwatch.amazonaws.com
-                - config.amazonaws.com
-                - cloudformation.amazonaws.com
-            Action: 
-              - "SNS:GetTopicAttributes"
-              - "SNS:SetTopicAttributes"
-              - "SNS:AddPermission"
-              - "SNS:RemovePermission"
-              - "SNS:DeleteTopic"
-              - "SNS:Subscribe"
-              - "SNS:ListSubscriptionsByTopic"
-              - "SNS:Publish"
-              - "SNS:Receive"
+              Service: events.amazonaws.com
+            Action: sns:Publish
             Resource: !Ref SnsTopic
             Condition:
+              ArnEquals:
+                aws:SourceArn:
+                  - !GetAtt EventRuleForDeletionScheduled.Arn
+                  - !GetAtt EventRuleForDisable.Arn
+                  - !GetAtt EventRuleForDeleted.Arn
               StringEquals:
-                "AWS:SourceOwner": !Ref 'AWS::AccountId'
-          - Sid: AllowEventRuletoPosttoSNSTopic
-            Effect: Allow
-            Principal: 
-              Service: "events.amazonaws.com"
-            Action: "sns:Publish"
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sns:Publish
             Resource: !Ref SnsTopic
-      Topics: 
-        - !Ref SnsTopic
+            Condition:
+              Bool:
+                aws:SecureTransport: false
 
-  EventRulefordeletation:
-    Type: 'AWS::Events::Rule'
+  EventRuleForDeletionScheduled:
+    Type: AWS::Events::Rule
     Properties:
-      Name: KMS-CMK-Deletion-Alert
-      Description: 'The Rule to notify in case of deletion of a KMS key'
+      Description: Notify when a KMS key is scheduled for deletion
       State: ENABLED
       Targets:
         - Arn: !Ref SnsTopic
           Id: SNSTopic
           InputTransformer:
             InputPathsMap:
-                days: "$.detail.responseElements.pendingWindowInDays"
-                deletedate: "$.detail.responseElements.deletionDate"
-                key: "$.detail.responseElements.keyId"
-                awsaccid: "$.detail.userIdentity.accountId"
-                user: "$.detail.userIdentity.userName"
-                eventdate: "$.detail.eventTime"
+              region: $.region
+              awsaccid: $.detail.userIdentity.accountId
+              caller: $.detail.userIdentity.arn
+              key: $.detail.requestParameters.keyId
+              days: $.detail.requestParameters.pendingWindowInDays
+              deletedate: $.detail.responseElements.deletionDate
+              eventdate: $.detail.eventTime
+              errorcode: $.detail.errorCode
             InputTemplate: |
-                "There is a KMS key scheduled for deletion.Please find the details below."
-                "Account ID: <awsaccid>"
-                "Deletion Scheduled by: <user>"
-                "KMS Key ID: <key>"
-                "Scheduled deletion date: <deletedate>"
-                "No of days to deletion: <days> days"
-                "Deletion action trigger at: <eventdate>"
+              "There is a KMS key scheduled for deletion. Please find the details below."
+              "Account ID: <awsaccid>"
+              "Region: <region>"
+              "Deletion scheduled by: <caller>"
+              "KMS Key ID: <key>"
+              "Requested waiting period: <days> days"
+              "Scheduled deletion date: <deletedate>"
+              "Action triggered at: <eventdate>"
+              "Error code (empty if the request succeeded): <errorcode>"
       EventPattern:
         source:
-        - aws.kms
+          - aws.kms
         detail-type:
-        - AWS API Call via CloudTrail
+          - AWS API Call via CloudTrail
         detail:
           eventSource:
-          - kms.amazonaws.com
+            - kms.amazonaws.com
           eventName:
-          - ScheduleKeyDeletion
+            - ScheduleKeyDeletion
 
-  EventRuleforDisable:
-    Type: 'AWS::Events::Rule'
+  EventRuleForDisable:
+    Type: AWS::Events::Rule
     Properties:
-      Name: KMS-CMK-disable-Alert
-      Description: 'The Rule to notify when a KMS key is disabled'
+      Description: Notify when a KMS key is disabled
       State: ENABLED
       Targets:
         - Arn: !Ref SnsTopic
           Id: SNSTopic
           InputTransformer:
             InputPathsMap:
-                key: "$.detail.responseElements.keyId"
-                awsaccid: "$.detail.userIdentity.accountId"
-                user: "$.detail.userIdentity.userName"
-                eventdate: "$.detail.eventTime"
+              region: $.region
+              awsaccid: $.detail.userIdentity.accountId
+              caller: $.detail.userIdentity.arn
+              key: $.detail.requestParameters.keyId
+              eventdate: $.detail.eventTime
+              errorcode: $.detail.errorCode
             InputTemplate: |
-                "There is a KMS key disabled.Please find the details below."
-                "Account ID: <awsaccid>"
-                "Disabled by: <user>"
-                "KMS Key ID: <key>"
-                "Disable action trigger at: <eventdate>"
+              "There is a KMS key disabled. Please find the details below."
+              "Account ID: <awsaccid>"
+              "Region: <region>"
+              "Disabled by: <caller>"
+              "KMS Key ID: <key>"
+              "Action triggered at: <eventdate>"
+              "Error code (empty if the request succeeded): <errorcode>"
       EventPattern:
         source:
-        - aws.kms
+          - aws.kms
         detail-type:
-        - AWS API Call via CloudTrail
+          - AWS API Call via CloudTrail
         detail:
           eventSource:
-          - kms.amazonaws.com
+            - kms.amazonaws.com
           eventName:
-          - DisableKey
+            - DisableKey
 
-  
+  # AWS KMS sends this event itself when the waiting period ends and the key is deleted.
+  EventRuleForDeleted:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Notify when a KMS key has been deleted at the end of its waiting period
+      State: ENABLED
+      Targets:
+        - Arn: !Ref SnsTopic
+          Id: SNSTopic
+          InputTransformer:
+            InputPathsMap:
+              region: $.region
+              awsaccid: $.account
+              key: $.detail.key-id
+              eventdate: $.time
+            InputTemplate: |
+              "A KMS key was deleted at the end of its waiting period. Data encrypted under this key can no longer be decrypted."
+              "Account ID: <awsaccid>"
+              "Region: <region>"
+              "KMS Key ID: <key>"
+              "Deleted at: <eventdate>"
+      EventPattern:
+        source:
+          - aws.kms
+        detail-type:
+          - KMS CMK Deletion
+
+Outputs:
+  TopicArn:
+    Description: ARN of the SNS topic that receives the alerts
+    Value: !Ref SnsTopic
+  TopicKeyArn:
+    Description: ARN of the customer managed key that encrypts the SNS topic. Do not disable or delete it, or the alerts stop.
+    Value: !GetAtt SnsKmsKey.Arn

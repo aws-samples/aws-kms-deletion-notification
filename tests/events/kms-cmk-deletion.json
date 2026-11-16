@@ -1,0 +1,11 @@
+{
+  "version": "0",
+  "id": "11111111-2222-3333-4444-555555555557",
+  "detail-type": "KMS CMK Deletion",
+  "source": "aws.kms",
+  "account": "111122223333",
+  "time": "2026-01-08T00:00:00Z",
+  "region": "us-east-1",
+  "resources": ["arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"],
+  "detail": { "key-id": "1234abcd-12ab-34cd-56ef-1234567890ab" }
+}
