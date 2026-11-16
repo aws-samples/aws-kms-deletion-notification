@@ -61,14 +61,6 @@ The stack creates one KMS key for the topic. Amazon EventBridge cannot publish t
 2. Disable it (`aws kms disable-key --key-id <key-id>`). You should get an email within a few minutes.
 3. Re-enable it (`aws kms enable-key --key-id <key-id>`).
 
-To check the event patterns without changing any key, run the sample events in `tests/events` (they contain placeholders, not real IDs) against the patterns:
-
-```bash
-aws events test-event-pattern \
-  --event-pattern '{"source":["aws.kms"],"detail-type":["AWS API Call via CloudTrail"],"detail":{"eventSource":["kms.amazonaws.com"],"eventName":["DisableKey"]}}' \
-  --event file://tests/events/disable-key.json
-```
-
 ## **Cost**
 
 The customer managed key costs about USD 1 per month plus request charges (see [AWS KMS pricing](https://aws.amazon.com/kms/pricing/)). SNS email delivery, EventBridge rules for AWS service events, and the CloudFormation stack have no or very low cost for this volume.
